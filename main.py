@@ -1,7 +1,11 @@
 import streamlit as st
 from tinydb import TinyDB, Query
-from datetime import datetime
+from datetime import datetime, timedelta
+import theme
 
+# Must be the first Streamlit command
+st.set_page_config(page_title="Front Desk Dispatch", layout="wide")
+theme.apply_theme()
 
 # --- 1. THE DATA SETUP ---
 db = TinyDB('spa_data.json')
@@ -18,9 +22,15 @@ def get_active_therapists():
 active_therapists = get_active_therapists()
 
 # --- 2. MANAGE STAFF UI ---
-st.title("Front Desk Dispatch")
+st.title("Healing Place - Front Desk Dispatch")
+
+active_assignments = assignments_table.all()
+assigned_therapists = [assignment['therapist'] for assignment in active_assignments]
+available_therapists = [t for t in active_therapists if t not in assigned_therapists]
 
 tab_staff, tab_presets = st.tabs(["Manage Individual Staff", "Shift Presets"])
+
+selected_preset_name = None
 
 with tab_staff:
     col1, col2 = st.columns(2)
@@ -39,6 +49,20 @@ with tab_staff:
                 therapists_table.remove(TherapistQuery.name == name_to_remove)
                 st.rerun()
 
+    st.divider()
+    st.subheader("Therapists on Current Shift")
+    if active_therapists:
+        on_shift_str = ", ".join(active_therapists)
+        st.write(f"**On Shift:** {on_shift_str}")
+        
+        if available_therapists:
+            avail_str = ", ".join(available_therapists)
+            st.write(f"**Available for Dispatch:** {avail_str}")
+        else:
+            st.info("All therapists on shift are currently in a session.")
+    else:
+        st.info("No therapists currently on shift.")
+
 with tab_presets:
     col3, col4 = st.columns(2)
     with col3:
@@ -53,29 +77,63 @@ with tab_presets:
                 st.error("No active therapists to save.")
                 
     with col4:
-        st.write("**Load a Preset**")
-        saved_presets = [p['name'] for p in presets_table.all()]
+        st.markdown("#### Load a Preset")
+        saved_presets = presets_table.all()
+        
         if saved_presets:
-            selected_preset = st.selectbox("Choose Preset", saved_presets)
-            if st.button("Load Staff from Preset"):
-                PresetQuery = Query()
-                preset_data = presets_table.search(PresetQuery.name == selected_preset)[0]
-                therapists_table.truncate()
-                for staff_name in preset_data['staff']:
-                    therapists_table.insert({'name': staff_name})
-                st.rerun()
+            preset_names = [p['name'] for p in saved_presets]
+            selected_preset_name = st.selectbox("Choose Preset", preset_names)
+            
+            # Create two side-by-side columns for the Load and Delete buttons
+            btn_col1, btn_col2 = st.columns(2)
+            
+            with btn_col1:
+                if st.button("Load Therapists"):
+                    PresetQuery = Query()
+                    preset_data = presets_table.get(PresetQuery.name == selected_preset_name)
+                    if preset_data:
+                        therapists_table.truncate()
+                        for therapist_name in preset_data['staff']:
+                            therapists_table.insert({'name': therapist_name})
+                        st.rerun()
+                        
+            with btn_col2:
+                if st.button("Delete Preset"):
+                    PresetQuery = Query()
+                    presets_table.remove(PresetQuery.name == selected_preset_name)
+                    st.rerun()
         else:
-            st.info("No presets saved yet.")
+            st.info("No saved presets yet.")
+
+    # --- 2.5 SELECTED PRESET THERAPISTS ROW (Now inside tab_presets) ---
+    st.divider()
+    if selected_preset_name:
+        PresetQuery = Query()
+        current_preset = presets_table.get(PresetQuery.name == selected_preset_name)
+        st.subheader(f"Therapists in '{selected_preset_name}' Preset")
+        if current_preset and current_preset.get('staff'):
+            staff_list_str = ", ".join(current_preset['staff'])
+            st.write(f"**Included Staff:** {staff_list_str}")
+        else:
+            st.info("No therapists saved in this preset.")
+    else:
+        st.subheader("Therapists in Selected Preset")
+        st.info("No preset currently selected.")
+
+# --- POP-UP DIALOG FOR ROOM CONFLICTS ---
+@st.dialog("Room Unavailable")
+def room_conflict_popup(room_name, therapist_name, start_str, end_str):
+    st.write(f"**{room_name}** is not available during this time slot.")
+    st.write(f"It is currently assigned to **{therapist_name}** from **{start_str} to {end_str}**.")
+    if st.button("OK"):
+        st.rerun()
 
 # --- 3. DISPATCH UI ---
 st.divider()
 st.subheader("Assign Room")
 
-# Fetch active assignments early so we can check who is currently busy
 active_assignments = assignments_table.all()
 assigned_therapists = [assignment['therapist'] for assignment in active_assignments]
-
-# Filter out therapists who are already assigned to a room
 available_therapists = [t for t in active_therapists if t not in assigned_therapists]
 
 if not active_therapists:
@@ -84,7 +142,6 @@ elif not available_therapists:
     st.error("All therapists on shift are currently assigned to a room.")
 else:
     with st.form("dispatch_form"):
-        # The dropdown now only shows available therapists
         selected_therapist = st.selectbox("Select Therapist", available_therapists)
         selected_room = st.selectbox("Select Room", rooms)
         selected_start_time = st.time_input("Session Start Time")
@@ -93,58 +150,112 @@ else:
         submitted = st.form_submit_button("Assign to Room")
         
         if submitted:
-            assignment_data = {
-                "therapist": selected_therapist,
-                "room": selected_room,
-                "start_time": selected_start_time.strftime("%I:%M %p"),
-                "duration": selected_duration,
-                "dispatch_time": datetime.now().strftime("%I:%M %p")
-            }
-            assignments_table.insert(assignment_data)
-            st.rerun() # Instantly refreshes to remove the therapist from the available list
+            now = datetime.now()
+            
+            # Calculate proposed start and end times
+            new_start_dt = now.replace(
+                hour=selected_start_time.hour, 
+                minute=selected_start_time.minute, 
+                second=0, 
+                microsecond=0
+            )
+            new_duration_mins = int(selected_duration.split()[0])
+            new_end_dt = new_start_dt + timedelta(minutes=new_duration_mins)
+            
+            # Check if the selected room has any overlapping active assignments
+            conflict = None
+            for existing in assignments_table.all():
+                if existing['room'] == selected_room:
+                    ex_start_obj = datetime.strptime(existing['start_time'], "%I:%M %p")
+                    ex_start_dt = now.replace(
+                        hour=ex_start_obj.hour, 
+                        minute=ex_start_obj.minute, 
+                        second=0, 
+                        microsecond=0
+                    )
+                    ex_duration_mins = int(existing['duration'].split()[0])
+                    ex_end_dt = ex_start_dt + timedelta(minutes=ex_duration_mins)
+                    
+                    # Overlap check: starts before existing ends AND ends after existing starts
+                    if new_start_dt < ex_end_dt and new_end_dt > ex_start_dt:
+                        conflict = (
+                            existing['therapist'], 
+                            existing['start_time'], 
+                            ex_end_dt.strftime("%I:%M %p")
+                        )
+                        break
+            
+            if conflict:
+                # Trigger the pop-up dialog instead of saving
+                room_conflict_popup(selected_room, conflict[0], conflict[1], conflict[2])
+            else:
+                assignment_data = {
+                    "therapist": selected_therapist,
+                    "room": selected_room,
+                    "start_time": selected_start_time.strftime("%I:%M %p"),
+                    "duration": selected_duration,
+                    "dispatch_time": now.strftime("%I:%M %p")
+                }
+                assignments_table.insert(assignment_data)
+                st.rerun()
 
+# --- 4. ACTIVE ASSIGNMENTS GRID ---
 st.divider()
 st.subheader("Current Active Rooms")
 
-# The fragment decorator isolates this function and reruns it every 1 second
 @st.fragment(run_every=1)
 def live_active_rooms():
     active_assignments = assignments_table.all()
     
     if not active_assignments:
         st.info("No active room assignments.")
-        return # Stops the function here if there are no assignments
+        return
 
-    # Changed from 4 columns to 3 to make the cards wider
     cols = st.columns(3)
+    now = datetime.now()
     
     for index, assignment in enumerate(active_assignments):
+        start_time_obj = datetime.strptime(assignment['start_time'], "%I:%M %p")
+        target_start_dt = now.replace(hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0)
+        
+        duration_minutes = int(assignment['duration'].split()[0])
+        target_end_dt = target_start_dt + timedelta(minutes=duration_minutes)
+        
+        time_until_start = (target_start_dt - now).total_seconds()
+        time_until_end = (target_end_dt - now).total_seconds()
+        
+        if time_until_end <= 0:
+            assignments_table.remove(doc_ids=[assignment.doc_id])
+            st.rerun()
+            
         current_col = cols[index % 3]
         
         with current_col:
-            with st.container(border=True):
-                st.markdown(f"### {assignment['room']}")
-                st.write(f"**Therapist:** {assignment['therapist']}")
-                
-                # --- LIVE COUNTDOWN TIMER ---
-                now = datetime.now()
-                start_time_obj = datetime.strptime(assignment['start_time'], "%I:%M %p")
-                target_start_dt = now.replace(hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0)
-                
-                time_diff = target_start_dt - now
-                
-                if time_diff.total_seconds() > 0:
-                    minutes, seconds = divmod(int(time_diff.total_seconds()), 60)
-                    # The :02d ensures seconds always show two digits (e.g., 05s)
-                    st.write(f"**Starts in:** {minutes}m {seconds:02d}s")
-                else:
-                    st.write("**Session in Progress**")
-                
-                st.write(f"**Duration:** {assignment['duration']}")
-                
-                if st.button("Finish", key=f"clear_{assignment.doc_id}"):
-                    assignments_table.remove(doc_ids=[assignment.doc_id])
-                    st.rerun()
+            end_time_str = target_end_dt.strftime("%I:%M %p")
+            schedule_str = f"{assignment['start_time']} - {end_time_str}"
+            
+            if time_until_start > 0:
+                minutes, seconds = divmod(int(time_until_start), 60)
+                is_in_progress = False
+                timer_str = f"{minutes}m {seconds:02d}s"
+            else:
+                minutes, seconds = divmod(int(time_until_end), 60)
+                is_in_progress = True
+                timer_str = f"{minutes}m {seconds:02d}s"
+            
+            # Render the custom HTML card with guaranteed borders
+            theme.render_room_card(
+                room=assignment['room'],
+                therapist=assignment['therapist'],
+                schedule_str=schedule_str,
+                is_in_progress=is_in_progress,
+                timer_str=timer_str,
+                duration=assignment['duration'],
+                large=False
+            )
+            
+            if st.button("Finish Early", key=f"clear_{assignment.doc_id}"):
+                assignments_table.remove(doc_ids=[assignment.doc_id])
+                st.rerun()
 
-# Call the function so it actually displays on the page
 live_active_rooms()

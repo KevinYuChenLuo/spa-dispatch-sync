@@ -1,33 +1,21 @@
 import streamlit as st
 from tinydb import TinyDB
-from datetime import datetime
+from datetime import datetime, timedelta
+import theme
 
-# 1. Add initial_sidebar_state="collapsed"
 st.set_page_config(
-    page_title="Staff Room Display", 
-    layout="wide", 
+    page_title="Break Room Monitor", 
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. Inject CSS to hide the sidebar toggle button completely
-st.markdown(
-    """
-    <style>
-        [data-testid="collapsedControl"] {
-            display: none;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+theme.apply_theme()
 
 st.title("Current Room Assignments")
 
 db = TinyDB('spa_data.json')
 assignments_table = db.table('assignments')
 
-# This fragment auto-refreshes every 1 second, making the timer tick 
-# entirely hands-free for the TV monitor.
 @st.fragment(run_every=1)
 def live_staff_monitor():
     active_assignments = assignments_table.all()
@@ -36,31 +24,46 @@ def live_staff_monitor():
         st.info("No active room assignments. Standby.")
         return
 
-    # Using 3 columns for large, readable cards from across the room
     cols = st.columns(3)
+    now = datetime.now()
     
     for index, assignment in enumerate(active_assignments):
+        start_time_obj = datetime.strptime(assignment['start_time'], "%I:%M %p")
+        target_start_dt = now.replace(hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0)
+        
+        duration_minutes = int(assignment['duration'].split()[0])
+        target_end_dt = target_start_dt + timedelta(minutes=duration_minutes)
+        
+        time_until_start = (target_start_dt - now).total_seconds()
+        time_until_end = (target_end_dt - now).total_seconds()
+        
+        if time_until_end <= 0:
+            assignments_table.remove(doc_ids=[assignment.doc_id])
+            st.rerun()
+            
         current_col = cols[index % 3]
         
         with current_col:
-            with st.container(border=True):
-                # Using larger markdown headings so it is visible from afar
-                st.markdown(f"## {assignment['room']}")
-                st.markdown(f"### Therapist: {assignment['therapist']}")
-                
-                now = datetime.now()
-                start_time_obj = datetime.strptime(assignment['start_time'], "%I:%M %p")
-                target_start_dt = now.replace(hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0)
-                
-                time_diff = target_start_dt - now
-                
-                if time_diff.total_seconds() > 0:
-                    minutes, seconds = divmod(int(time_diff.total_seconds()), 60)
-                    # Colored text for visibility
-                    st.markdown(f"#### ⏳ Starts in: :orange[{minutes}m {seconds:02d}s]")
-                else:
-                    st.markdown("#### 🟢 :green[Session in Progress]")
-                
-                st.write(f"**Duration:** {assignment['duration']}")
+            end_time_str = target_end_dt.strftime("%I:%M %p")
+            schedule_str = f"{assignment['start_time']} - {end_time_str}"
+            
+            if time_until_start > 0:
+                minutes, seconds = divmod(int(time_until_start), 60)
+                is_in_progress = False
+                timer_str = f"{minutes}m {seconds:02d}s"
+            else:
+                minutes, seconds = divmod(int(time_until_end), 60)
+                is_in_progress = True
+                timer_str = f"{minutes}m {seconds:02d}s"
+            
+            theme.render_room_card(
+                room=assignment['room'],
+                therapist=assignment['therapist'],
+                schedule_str=schedule_str,
+                is_in_progress=is_in_progress,
+                timer_str=timer_str,
+                duration=assignment['duration'],
+                large=True
+            )
 
 live_staff_monitor()
