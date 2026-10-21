@@ -24,31 +24,64 @@ def render_sidebar():
         st.page_link("pages/staff.py", label="Break Room Monitor")
         st.page_link("pages/settings.py", label="System Settings")
 
-def render_room_card(room, therapist, schedule_str, is_in_progress, timer_str, duration, large=False):
-    """Renders a rock-solid custom HTML card that guarantees visible borders in both themes."""
-    title_size = "28px" if large else "24px"
-    sub_size = "22px" if large else "19px"
-    
+def render_room_card(room, therapist, schedule_str, is_in_progress, timer_str, duration, large=False, total_cards=1):
+    """
+    Renders a responsive HTML card that automatically scales down font and padding
+    when there is more than 1 row of cards (total_cards > 3) on the TV.
+    """
+    is_multi_row = (total_cards > 3)
+
+    if large:
+        if is_multi_row:
+            # Auto-scaled compact sizing for 2+ rows on TV so everything fits on screen
+            title_size = "clamp(18px, 2.2vh, 24px)"
+            sub_size = "clamp(15px, 1.8vh, 20px)"
+            row_size = "clamp(13px, 1.5vh, 17px)"
+            status_size = "clamp(15px, 1.8vh, 20px)"
+            card_pad = "1.2vh 1.2vw"
+            row_margin = "0.4vh"
+        else:
+            # Spacious sizing when only 1 row (1-3 cards) is displayed
+            title_size = "clamp(24px, 3.2vh, 34px)"
+            sub_size = "clamp(18px, 2.4vh, 26px)"
+            row_size = "clamp(16px, 2.0vh, 22px)"
+            status_size = "clamp(18px, 2.4vh, 26px)"
+            card_pad = "2.2vh 1.5vw"
+            row_margin = "0.9vh"
+    else:
+        # Front Desk PC sizing
+        title_size = "22px"
+        sub_size = "18px"
+        row_size = "16px"
+        status_size = "18px"
+        card_pad = "16px"
+        row_margin = "6px"
+
     if is_in_progress:
         status_html = (
-            f"<div class='spa-card-row'><span class='status-in-progress'>Session in Progress</span></div>"
-            f"<div class='spa-card-row'><strong>Time Remaining:</strong> {timer_str}</div>"
+            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
+            f"<span class='status-in-progress' style='font-size: {status_size};'>Session in Progress</span></div>"
+            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
+            f"<strong>Time Remaining:</strong> {timer_str}</div>"
         )
     else:
-        status_html = f"<div class='spa-card-row'><strong>Starts in:</strong> {timer_str}</div>"
+        status_html = (
+            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
+            f"<strong>Starts in:</strong> {timer_str}</div>"
+        )
 
     card_html = f"""
-    <div class="spa-card">
-        <div class="spa-card-title" style="font-size: {title_size};">{room}</div>
-        <div class="spa-card-subtitle" style="font-size: {sub_size};"><strong>Therapist:</strong> {therapist}</div>
-        <div class="spa-card-row"><strong>Schedule:</strong> {schedule_str}</div>
+    <div class="spa-card" style="padding: {card_pad};">
+        <div class="spa-card-title" style="font-size: {title_size}; margin-bottom: {row_margin};">{room}</div>
+        <div class="spa-card-subtitle" style="font-size: {sub_size}; margin-bottom: {row_margin};"><strong>Therapist:</strong> {therapist}</div>
+        <div class="spa-card-row" style="font-size: {row_size}; margin-bottom: {row_margin};"><strong>Schedule:</strong> {schedule_str}</div>
         {status_html}
-        <div class="spa-card-row"><strong>Duration:</strong> {duration}</div>
+        <div class="spa-card-row" style="font-size: {row_size}; margin-bottom: 0;"><strong>Duration:</strong> {duration}</div>
     </div>
     """
     st.markdown(card_html, unsafe_allow_html=True)
 
-def apply_theme(hide_sidebar=False):
+def apply_theme(hide_sidebar=False, compact_top=False):
     if not hide_sidebar:
         render_sidebar()
         
@@ -76,6 +109,29 @@ def apply_theme(hide_sidebar=False):
         [data-testid="collapsedControl"] { display: none !important; }
     """ if hide_sidebar else ""
 
+    # Removes the huge empty whitespace above "Current Room Assignments"
+    top_space_css = """
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
+        .block-container, [data-testid="stMainBlockContainer"] {
+            padding-top: 2.2rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 2.5rem !important;
+            padding-right: 2.5rem !important;
+            max-width: 100% !important;
+        }
+        h1 {
+            margin-top: 0px !important;
+            padding-top: 0px !important;
+            margin-bottom: 0.8rem !important;
+        }
+    """ if compact_top else """
+        .block-container, [data-testid="stMainBlockContainer"] {
+            padding-top: 3rem !important;
+        }
+    """
+
     custom_css = f"""
     <style>
         :root {{
@@ -89,6 +145,7 @@ def apply_theme(hide_sidebar=False):
         }}
 
         {sidebar_hide_css}
+        {top_space_css}
 
         /* 1. Main App, Top Header Bar, and Sidebar Backgrounds */
         .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
@@ -99,34 +156,35 @@ def apply_theme(hide_sidebar=False):
             border-right: 2px solid var(--border-color) !important;
         }}
 
-        /* 2. Custom Spa Room Card (Guaranteed Border & Styling) */
+        /* 2. Custom Spa Room Card (Guaranteed Border & Responsive Sizing) */
         .spa-card {{
             background-color: var(--card-bg-color) !important;
             border: 2.5px solid var(--border-color) !important;
             border-radius: 12px !important;
-            padding: 20px !important;
-            margin-bottom: 12px !important;
+            margin-bottom: 1.2vh !important;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08) !important;
             color: var(--text-color) !important;
         }}
         .spa-card-title {{
             font-weight: 700 !important;
-            margin-bottom: 10px !important;
             color: var(--text-color) !important;
+            line-height: 1.2 !important;
         }}
         .spa-card-subtitle {{
-            margin-bottom: 10px !important;
             color: var(--text-color) !important;
+            line-height: 1.25 !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
         }}
         .spa-card-row {{
-            font-size: 18px !important;
-            margin-bottom: 6px !important;
             color: var(--text-color) !important;
+            line-height: 1.3 !important;
+            white-space: nowrap !important; /* Prevents "PM" from wrapping to a new line */
         }}
         .status-in-progress {{
             color: var(--status-green) !important;
             font-weight: 700 !important;
-            font-size: 20px !important;
         }}
 
         /* 3. Body Text & Headers */
@@ -136,7 +194,7 @@ def apply_theme(hide_sidebar=False):
         }}
         h1, h1 span {{
             color: var(--text-color) !important;
-            font-size: 38px !important;
+            font-size: clamp(26px, 3.8vh, 38px) !important;
             font-weight: 700 !important;
         }}
         h2, h2 span {{

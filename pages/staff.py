@@ -9,7 +9,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-theme.apply_theme()
+# compact_top=True removes the empty space above "Current Room Assignments"
+theme.apply_theme(compact_top=True)
 
 st.title("Current Room Assignments")
 
@@ -24,7 +25,10 @@ def live_staff_monitor():
         st.info("No active room assignments. Standby.")
         return
 
-    cols = st.columns(3)
+    total_cards = len(active_assignments)
+    # Use 3 columns for up to 6 cards (max 2 rows), or 4 columns if 7+ cards
+    num_cols = 4 if total_cards > 6 else 3
+    cols = st.columns(num_cols)
     now = datetime.now()
     
     for index, assignment in enumerate(active_assignments):
@@ -41,7 +45,7 @@ def live_staff_monitor():
             assignments_table.remove(doc_ids=[assignment.doc_id])
             st.rerun()
             
-        current_col = cols[index % 3]
+        current_col = cols[index % num_cols]
         
         with current_col:
             end_time_str = target_end_dt.strftime("%I:%M %p")
@@ -63,7 +67,8 @@ def live_staff_monitor():
                 is_in_progress=is_in_progress,
                 timer_str=timer_str,
                 duration=assignment['duration'],
-                large=True
+                large=True,
+                total_cards=total_cards
             )
 
 live_staff_monitor()
