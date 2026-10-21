@@ -14,53 +14,49 @@ def render_sidebar():
         st.page_link("main.py", label="Front Desk Dispatch")
         st.page_link("pages/staff.py", label="Break Room Monitor")
 
-def render_room_card(room, therapist, schedule_str, is_in_progress, timer_str, duration, large=False, total_cards=1):
-    """Renders the room card with dynamic TV sizing while inheriting Streamlit's native Light/Dark colors."""
-    is_multi_row = (total_cards > 3)
-
+def render_room_card(room, therapist, notes="", large=False, total_cards=1):
+    """Renders the room card with Room, Therapist, and optional Notes."""
     if large:
-        if is_multi_row:
-            title_size = "clamp(18px, 2.2vh, 24px)"
-            sub_size = "clamp(15px, 1.8vh, 20px)"
-            row_size = "clamp(13px, 1.5vh, 17px)"
-            status_size = "clamp(15px, 1.8vh, 20px)"
+        if total_cards > 6:
+            # Compact TV sizing for 7-10+ cards (3 rows)
+            title_size = "clamp(18px, 2.3vh, 24px)"
+            sub_size = "clamp(16px, 2.0vh, 22px)"
+            note_size = "clamp(14px, 1.7vh, 18px)"
             card_pad = "1.2vh 1.2vw"
-            row_margin = "0.4vh"
-        else:
-            title_size = "clamp(24px, 3.2vh, 34px)"
+            row_margin = "0.5vh"
+        elif total_cards > 3:
+            # Medium TV sizing for 4-6 cards (2 rows)
+            title_size = "clamp(22px, 2.8vh, 30px)"
             sub_size = "clamp(18px, 2.4vh, 26px)"
-            row_size = "clamp(16px, 2.0vh, 22px)"
-            status_size = "clamp(18px, 2.4vh, 26px)"
-            card_pad = "2.2vh 1.5vw"
-            row_margin = "0.9vh"
+            note_size = "clamp(16px, 2.0vh, 22px)"
+            card_pad = "1.8vh 1.5vw"
+            row_margin = "0.7vh"
+        else:
+            # Spacious TV sizing for 1-3 cards (1 row)
+            title_size = "clamp(26px, 3.6vh, 38px)"
+            sub_size = "clamp(20px, 2.8vh, 30px)"
+            note_size = "clamp(18px, 2.3vh, 25px)"
+            card_pad = "2.5vh 1.8vw"
+            row_margin = "1.0vh"
     else:
-        title_size = "22px"
-        sub_size = "18px"
-        row_size = "16px"
-        status_size = "18px"
+        # Front Desk PC sizing
+        title_size = "20px"
+        sub_size = "17px"
+        note_size = "15px"
         card_pad = "16px"
         row_margin = "6px"
 
-    if is_in_progress:
-        status_html = (
-            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
-            f"<span class='status-in-progress' style='font-size: {status_size};'>Session in Progress</span></div>"
-            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
-            f"<strong>Time Remaining:</strong> {timer_str}</div>"
-        )
+    notes_clean = str(notes).strip()
+    if notes_clean:
+        notes_html = f'<div class="spa-card-notes" style="font-size: {note_size}; margin-top: {row_margin};"><strong>Notes:</strong> {notes_clean}</div>'
     else:
-        status_html = (
-            f"<div class='spa-card-row' style='font-size: {row_size}; margin-bottom: {row_margin};'>"
-            f"<strong>Starts in:</strong> {timer_str}</div>"
-        )
+        notes_html = ""
 
     card_html = f"""
     <div class="spa-card" style="padding: {card_pad};">
         <div class="spa-card-title" style="font-size: {title_size}; margin-bottom: {row_margin};">{room}</div>
-        <div class="spa-card-subtitle" style="font-size: {sub_size}; margin-bottom: {row_margin};"><strong>Therapist:</strong> {therapist}</div>
-        <div class="spa-card-row" style="font-size: {row_size}; margin-bottom: {row_margin};"><strong>Schedule:</strong> {schedule_str}</div>
-        {status_html}
-        <div class="spa-card-row" style="font-size: {row_size}; margin-bottom: 0;"><strong>Duration:</strong> {duration}</div>
+        <div class="spa-card-subtitle" style="font-size: {sub_size}; margin-bottom: 0;"><strong>Therapist:</strong> {therapist}</div>
+        {notes_html}
     </div>
     """
     st.markdown(card_html, unsafe_allow_html=True)
@@ -70,6 +66,9 @@ def apply_theme(hide_sidebar=False, compact_top=False):
         render_sidebar()
 
     top_space_css = """
+        [data-testid="stHeader"] {
+            background: transparent !important;
+        }
         .block-container, [data-testid="stMainBlockContainer"] {
             padding-top: 2.2rem !important;
             padding-bottom: 1rem !important;
@@ -99,23 +98,16 @@ def apply_theme(hide_sidebar=False, compact_top=False):
             line-height: 1.2 !important;
         }}
         .spa-card-subtitle {{
-            line-height: 1.25 !important;
+            line-height: 1.3 !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
         }}
-        .spa-card-row {{
-            line-height: 1.3 !important;
-            white-space: nowrap !important;
-        }}
-        .status-in-progress {{
-            color: #2E7D32 !important;
-            font-weight: 700 !important;
-        }}
-        @media (prefers-color-scheme: dark) {{
-            .status-in-progress {{
-                color: #81C784 !important;
-            }}
+        .spa-card-notes {{
+            line-height: 1.35 !important;
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            opacity: 0.9 !important;
         }}
     </style>
     """
