@@ -13,7 +13,7 @@ therapists_table = db.table('therapists')
 assignments_table = db.table('assignments')
 presets_table = db.table('presets')
 
-rooms = ["Room 1", "Room 2", "Room 3", "Room 4"]
+rooms = ["Room 1 (Double Bed)", "Room 2", "Room 3 (Double Bed)", "Room 4", "Room 5", "Room 6", "Room 7", "Room 8", "Room 9", "Room 10"]
 time_slots = ["30 minutes", "60 minutes", "90 minutes", "120 minutes"]
 
 def get_active_therapists():

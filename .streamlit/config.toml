@@ -1,0 +1,15 @@
+[theme]
+# The main background color (currently black, this forces it to white)
+backgroundColor = "#FFFFFF"
+
+# The background color for sidebars and input widgets
+secondaryBackgroundColor = "#F0F2F6"
+
+# The color of the text
+textColor = "#262730"
+
+# The primary accent color for buttons and active menus
+primaryColor = "#2E8B57" # A calming Sea Green
+
+# Font family options: "sans serif", "serif", or "monospace"
+font = "sans serif"
