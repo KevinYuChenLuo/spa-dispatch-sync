@@ -23,21 +23,6 @@ def live_staff_monitor():
         st.info("No active room assignments. Standby.")
         return
 
-    total_cards = len(active_assignments)
-    # Use 3 columns for up to 6 cards, or 4 columns for 7-10+ cards
-    num_cols = 4 if total_cards > 6 else 3
-    cols = st.columns(num_cols)
-    
-    for index, assignment in enumerate(active_assignments):
-        current_col = cols[index % num_cols]
-        
-        with current_col:
-            theme.render_room_card(
-                room=assignment['room'],
-                therapist=assignment['therapist'],
-                notes=assignment.get('notes', ''),
-                large=True,
-                total_cards=total_cards
-            )
+    theme.render_breakroom_grid(active_assignments)
 
 live_staff_monitor()
