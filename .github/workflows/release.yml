@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write  # <-- Required so GitHub Actions can upload the zip files to the release
+
 jobs:
   build:
     name: Build for ${{ matrix.os }}
