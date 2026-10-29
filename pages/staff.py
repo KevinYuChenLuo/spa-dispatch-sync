@@ -17,6 +17,9 @@ assignments_table = db.table('assignments')
 
 @st.fragment(run_every=2)
 def live_staff_monitor():
+    # Purge any cards that have hit 60 minutes
+    theme.cleanup_expired_assignments(assignments_table, timeout_minutes=60)
+    
     active_assignments = assignments_table.all()
     
     if not active_assignments:

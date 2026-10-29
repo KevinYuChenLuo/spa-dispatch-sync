@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import datetime
 from tinydb import TinyDB, Query
 import theme
 
@@ -195,7 +196,8 @@ else:
                 "therapist": display_therapist_str,
                 "therapists": chosen_list,
                 "room": selected_room,
-                "notes": additional_notes.strip()
+                "notes": additional_notes.strip(),
+                "assigned_at": datetime.now().isoformat()  # <-- Records start timestamp for 60-min timer
             }
             assignments_table.insert(assignment_data)
             st.session_state.dispatch_reset_counter += 1
@@ -207,6 +209,10 @@ st.subheader("Current Active Rooms")
 
 @st.fragment(run_every=2)
 def live_active_rooms():
+    # Automatically clear any room that has reached 60 minutes
+    if theme.cleanup_expired_assignments(assignments_table, timeout_minutes=60):
+        st.rerun()
+
     active_assignments = assignments_table.all()
     
     if not active_assignments:
@@ -214,6 +220,7 @@ def live_active_rooms():
         return
 
     cols = st.columns(3)
+    now = datetime.now()
     
     for index, assignment in enumerate(active_assignments):
         current_col = cols[index % 3]
@@ -226,8 +233,28 @@ def live_active_rooms():
                 large=False
             )
             
-            if st.button("Clear Room", key=f"clear_{assignment.doc_id}"):
-                assignments_table.remove(doc_ids=[assignment.doc_id])
-                st.rerun()
+            # Calculate remaining time out of 60 minutes
+            assigned_str = assignment.get("assigned_at")
+            if assigned_str:
+                elapsed_sec = (now - datetime.fromisoformat(assigned_str)).total_seconds()
+                remaining_sec = max(0, int(60 * 60 - elapsed_sec))
+            else:
+                remaining_sec = 60 * 60
+                
+            mins, secs = divmod(remaining_sec, 60)
+            countdown_str = f"{mins:02d}:{secs:02d}"
+
+            # Place Clear Room button and live countdown side-by-side
+            btn_col, timer_col = st.columns([1, 1.2], vertical_alignment="center")
+            with btn_col:
+                if st.button("Clear Room", key=f"clear_{assignment.doc_id}", use_container_width=True):
+                    assignments_table.remove(doc_ids=[assignment.doc_id])
+                    st.rerun()
+            with timer_col:
+                st.markdown(
+                    f"<div style='font-size: 15px; font-weight: 600; opacity: 0.85;'>"
+                    f"Auto-clear in: <code>{countdown_str}</code></div>",
+                    unsafe_allow_html=True
+                )
 
 live_active_rooms()

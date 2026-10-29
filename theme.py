@@ -1,6 +1,46 @@
 import streamlit as st
+from datetime import datetime
 import math
 import html
+
+def cleanup_expired_assignments(assignments_table, history_table=None, timeout_minutes=60):
+    """
+    Removes any room assignment older than timeout_minutes (default 60 mins).
+    Returns True if any expired rooms were removed so the caller can trigger st.rerun() if needed.
+    """
+    now = datetime.now()
+    removed_any = False
+
+    for assignment in list(assignments_table.all()):
+        assigned_str = assignment.get("assigned_at")
+        if not assigned_str:
+            # Backfill timestamp if an older card didn't have one
+            assignments_table.update({"assigned_at": now.isoformat()}, doc_ids=[assignment.doc_id])
+            continue
+
+        assigned_dt = datetime.fromisoformat(assigned_str)
+        elapsed_seconds = (now - assigned_dt).total_seconds()
+
+        if elapsed_seconds >= timeout_minutes * 60:
+            if history_table is not None:
+                history_table.insert({
+                    "date": now.strftime("%Y-%m-%d"),
+                    "day_of_week": now.strftime("%A"),
+                    "hour_assigned": assigned_dt.hour,
+                    "room": assignment["room"],
+                    "is_double_room": "(Double)" in assignment["room"],
+                    "therapists": assignment.get("therapists", [assignment["therapist"]]),
+                    "num_therapists": len(assignment.get("therapists", [assignment["therapist"]])),
+                    "notes": assignment.get("notes", ""),
+                    "assigned_at": assigned_str,
+                    "cleared_at": now.isoformat(),
+                    "turnaround_mins": float(timeout_minutes),
+                    "auto_expired": True
+                })
+            assignments_table.remove(doc_ids=[assignment.doc_id])
+            removed_any = True
+
+    return removed_any
 
 def render_sidebar():
     st.markdown("""
@@ -65,100 +105,161 @@ def render_room_card(room, therapist, notes="", large=False, total_cards=1):
 
 def render_breakroom_grid(assignments):
     """
-    Renders Break Room cards using pure percentage grid columns (zoom-proof),
-    leaves bottom breathing room, centers the Room title, and dynamically scales
-    font sizes using cqmin (card container query units).
+    80vh Break Room grid with extra-large dynamic fonts for no-notes cards
+    and balanced header/notes sizing for cards with comments.
     """
-    cards_html = "".join([
-        f'<div class="spa-grid-card">'
-        f'<div class="spa-grid-title">{html.escape(str(a.get("room", "")))}</div>'
-        f'<div class="spa-grid-subtitle"><strong>Therapist:</strong> {html.escape(str(a.get("therapist", "")))}</div>'
-        + (
-            f'<div class="spa-grid-notes"><strong>Notes:</strong> {html.escape(str(a.get("notes", "")).strip())}</div>'
-            if str(a.get("notes", "")).strip() else ""
+    cards_html_list = []
+    for a in assignments:
+        room_str = html.escape(str(a.get("room", "")))
+        therapist_str = html.escape(str(a.get("therapist", "")))
+        notes_clean = html.escape(str(a.get("notes", "")).strip())
+        
+        has_notes_class = "has-notes" if notes_clean else "no-notes"
+        notes_html = (
+            f'<div class="spa-grid-notes"><strong>Notes:</strong> {notes_clean}</div>'
+            if notes_clean else ""
         )
-        + '</div>'
-        for a in assignments
-    ])
+
+        card_html = (
+            f'<div class="spa-grid-card {has_notes_class}">'
+            f'<div class="spa-card-header">'
+            f'<div class="spa-grid-title">{room_str}</div>'
+            f'<div class="spa-grid-subtitle"><strong>Therapist:</strong> {therapist_str}</div>'
+            f'</div>'
+            f'{notes_html}'
+            f'</div>'
+        )
+        cards_html_list.append(card_html)
+
+    cards_html = "".join(cards_html_list)
 
     st.markdown(f"""
     <style>
         .spa-breakroom-grid {{
             display: grid;
-            /* Pure percentage (21%) keeps 4 columns even when zoomed in */
             grid-template-columns: repeat(auto-fit, minmax(21%, 1fr));
             grid-auto-rows: 1fr;
-            gap: 1.4rem;
-            /* Leaves comfortable vertical space at the bottom of the screen */
-            height: calc(100vh - 12.5rem);
-            min-height: 420px;
+            gap: 1.5vh 1.3vw;
+            /* 80vh cuts the bottom empty gap in half while avoiding TV bezel cutoff */
+            height: 80vh;
             width: 100%;
+            max-width: 100% !important;
             box-sizing: border-box;
         }}
         .spa-grid-card {{
             container-type: size;
             border: 2px solid currentColor;
-            border-radius: 14px;
-            padding: 6cqmin 7cqi;
+            border-radius: 1.4vh;
+            padding: 2.5cqh 3cqi !important;
             display: flex;
             flex-direction: column;
-            justify-content: center;
             height: 100%;
             width: 100%;
+            max-width: 100% !important;
             box-sizing: border-box;
             overflow: hidden;
         }}
-        .spa-grid-title {{
-            /* Centered and dynamically scaled to card dimensions */
-            text-align: center;
-            width: 100%;
-            font-size: clamp(1.5rem, 14cqmin, 4.2rem);
-            font-weight: 800;
-            line-height: 1.15;
-            margin-bottom: 4cqmin;
+        .spa-grid-card.no-notes {{
+            justify-content: center;
+            align-items: center;
         }}
-        .spa-grid-subtitle {{
-            /* Left-aligned and larger dynamic font */
-            text-align: left;
-            width: 100%;
-            font-size: clamp(1.15rem, 9.5cqmin, 2.8rem);
-            line-height: 1.3;
+        .spa-grid-card.has-notes {{
+            justify-content: flex-start;
+            align-items: stretch;
+            padding: 2cqh 3cqi !important;
+        }}
+        .spa-grid-card > div {{
+            width: 100% !important;
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            box-sizing: border-box !important;
+            word-break: normal !important;
+            overflow-wrap: break-word !important;
+        }}
+        .spa-card-header {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center !important;
+            gap: 1.2cqh;
+            flex-shrink: 0;
+        }}
+        /* Extra-large fonts when card has NO notes */
+        .spa-grid-card.no-notes .spa-grid-title {{
+            text-align: center !important;
+            font-size: clamp(14px, min(13.5cqi, 30cqh), 5.5rem) !important;
+            font-weight: 800 !important;
+            line-height: 1.1 !important;
+            margin: 0 !important;
+        }}
+        .spa-grid-card.no-notes .spa-grid-subtitle {{
+            text-align: center !important;
+            font-size: clamp(12px, min(10.5cqi, 23cqh), 4.0rem) !important;
+            line-height: 1.15 !important;
+            margin: 0 !important;
+        }}
+        /* Slightly larger but balanced header when card HAS notes */
+        .spa-grid-card.has-notes .spa-grid-title {{
+            text-align: center !important;
+            font-size: clamp(12px, min(10.5cqi, 20cqh), 4.2rem) !important;
+            font-weight: 800 !important;
+            line-height: 1.1 !important;
+            margin: 0 !important;
+        }}
+        .spa-grid-card.has-notes .spa-grid-subtitle {{
+            text-align: center !important;
+            font-size: clamp(11px, min(8.5cqi, 15.5cqh), 3.2rem) !important;
+            line-height: 1.15 !important;
+            margin: 0 !important;
         }}
         .spa-grid-notes {{
-            text-align: left;
-            width: 100%;
-            font-size: clamp(1rem, 7.5cqmin, 2.2rem);
-            line-height: 1.35;
-            margin-top: 3cqmin;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            flex: 1;
+            min-height: 0;
+            margin-top: 1.5cqh !important;
+            padding-top: 1.5cqh !important;
+            border-top: 1px solid rgba(128, 128, 128, 0.35);
+            text-align: left !important;
+            font-size: clamp(10px, min(7.5cqi, 14cqh), 2.6rem) !important;
+            line-height: 1.22 !important;
+            white-space: pre-wrap !important;
             overflow: hidden;
-            opacity: 0.9;
+            opacity: 0.94;
         }}
     </style>
     <div class="spa-breakroom-grid">{cards_html}</div>
     """, unsafe_allow_html=True)
 
+
 def apply_theme(hide_sidebar=False, compact_top=False):
     if not hide_sidebar:
         render_sidebar()
 
-    # Removed overflow: hidden so zooming in never hides cards without a scrollbar
     top_space_css = """
         [data-testid="stHeader"] {
             background: transparent !important;
+            height: 0px !important;
+            min-height: 0px !important;
+        }
+        [data-testid="stToolbar"], [data-testid="collapsedControl"] {
+            top: 1.5vh !important;
         }
         .block-container, [data-testid="stMainBlockContainer"] {
-            padding-top: 2.2rem !important;
-            padding-bottom: 1.5rem !important;
-            padding-left: 2.5rem !important;
-            padding-right: 2.5rem !important;
+            padding-top: 3.2vh !important;
+            padding-bottom: 1vh !important;
+            padding-left: 3.2vw !important;
+            padding-right: 3.2vw !important;
             max-width: 100% !important;
         }
+        [data-testid="stVerticalBlock"] {
+            gap: 0.5vh !important;
+        }
         h1 {
+            font-size: clamp(1.2rem, 4.0vh, 3.0rem) !important;
             margin-top: 0px !important;
             padding-top: 0px !important;
-            margin-bottom: 1rem !important;
+            margin-bottom: 0.8vh !important;
+            line-height: 1.1 !important;
         }
     """ if compact_top else ""
 
